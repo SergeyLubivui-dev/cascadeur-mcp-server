@@ -941,6 +941,17 @@ def mirror(what: str = "frame", object_names: list[str] | None = None) -> dict:
 
 
 @mcp.tool()
+def set_camera(preset: str = "3q", target: list[float] | None = None,
+               distance: float = 220.0) -> dict:
+    """Aim the viewport camera before rendering. preset: 'side_l'/'side_r'
+    (best for reviewing walk/sit profiles), 'front', 'back', 'top', '3q'
+    (three-quarter). target: world point to look at (default character
+    mid-height). Call before viewport_screenshot / the GIF render loop."""
+    return _call("tool.set_camera", {"preset": preset, "target": target,
+                                     "distance": distance})
+
+
+@mcp.tool()
 def viewport_screenshot(width: int = 960, height: int = 540, samples: int = 4):
     """Render the Cascadeur viewport to an image and return it."""
     out_path = os.path.join(os.environ.get("TEMP", "."),

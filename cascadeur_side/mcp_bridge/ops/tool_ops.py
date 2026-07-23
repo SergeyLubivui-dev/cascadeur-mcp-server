@@ -74,6 +74,44 @@ def screenshot_clipboard(ctx):
     return {"copied": True}
 
 
+def set_camera(ctx, preset="3q", target=None, distance=220.0):
+    """Aim the active viewport camera. preset: front|back|side_l|side_r|top|3q.
+    target: world point to look at (default character mid-height at origin)."""
+    import numpy as np
+    csc = ctx.csc
+    app_scene = ctx.app_scene()
+    tgt = target or [0.0, 90.0, 20.0]
+    d = float(distance)
+    presets = {
+        "front":  [tgt[0], tgt[1], tgt[2] - d],
+        "back":   [tgt[0], tgt[1], tgt[2] + d],
+        "side_l": [tgt[0] + d, tgt[1], tgt[2]],
+        "side_r": [tgt[0] - d, tgt[1], tgt[2]],
+        "top":    [tgt[0], tgt[1] + d, tgt[2] + 0.1],
+        "3q":     [tgt[0] + d * 0.7, tgt[1] + d * 0.35, tgt[2] - d * 0.7],
+    }
+    if preset not in presets:
+        raise ValueError("preset must be one of %s" % sorted(presets))
+    pos = presets[preset]
+
+    try:
+        vp = app_scene.active_viewport().domain_viewport()
+    except Exception:
+        vps = app_scene.view_ports()
+        vp = vps[0].domain_viewport()
+    struct = vp.camera_struct()
+    struct.target = np.array([float(tgt[0]), float(tgt[1]), float(tgt[2])],
+                             dtype=np.float32)
+    struct.position = np.array([float(pos[0]), float(pos[1]), float(pos[2])],
+                               dtype=np.float32)
+    try:
+        struct.type = csc.view.CameraType.PERSPECTIVE
+    except Exception:
+        pass
+    vp.set_camera_struct(struct)
+    return {"preset": preset, "target": tgt, "position": pos}
+
+
 def tool_introspect(ctx, name):
     """Debug helper: list attributes of a tool and its editor."""
     tm = ctx.app.get_tools_manager()
@@ -93,6 +131,7 @@ OPS = {
     "tool.redo": redo,
     "tool.mirror": mirror,
     "tool.screenshot": screenshot,
+    "tool.set_camera": set_camera,
     "tool.render_video": render_video,
     "tool.screenshot_clipboard": screenshot_clipboard,
     "tool.introspect": tool_introspect,
