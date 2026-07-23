@@ -156,12 +156,26 @@ def interval_set(ctx, frame, interpolation=None, ik_fk=None, fixation=None,
             target.fixation = getattr(csc.layers.layer.Fixation, fx)
 
     # One modify per track: batching several change_section calls into a single
-    # modify only applies the first one (empirically).
+    # modify only applies the first one (empirically). change_section throws
+    # "invalid map<K,T> key" if the track has no section at `frame`; ensure a
+    # key/section exists first, and swallow failures so a single bad track never
+    # crashes the whole build (the exception would otherwise propagate on
+    # Cascadeur's main thread and destabilize it).
+    failures = []
     for lid in layers:
         def mod(model, update, scene_updater, _lid=lid):
-            model.layers_editor().change_section(int(frame), _lid, mod_section)
+            le = model.layers_editor()
+            try:
+                le.set_fixed_interpolation_or_key_if_need(_lid, int(frame), True)
+            except Exception:
+                pass
+            try:
+                le.change_section(int(frame), _lid, mod_section)
+            except Exception as e:
+                failures.append(str(e))
         ctx.scene.modify_update("MCP: set interval properties", mod)
-    return {"tracks": len(layers), "frame": frame}
+    return {"tracks": len(layers), "frame": frame,
+            "failures": failures[:5] if failures else []}
 
 
 OPS = {
