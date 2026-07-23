@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cascadeur": {
+      "command": "D:\\claude-SB\\MCP_Cascadeur\\.venv\\Scripts\\cascadeur-mcp-pro.exe",
+      "args": [],
+      "env": {
+        "CASCADEUR_EXE_PATH": "F:\\0_Main\\cascadeur.exe"
+      }
+    }
+  }
+}

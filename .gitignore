@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# Large / generated artifacts (renders, bakes, scenes)
+test_output/
+scratchpad/
+
+# Third-party / derived motion data (regenerated from source mocap)
+reference_fbx/
+dataset/
+
+# OS
+.DS_Store
+Thumbs.db
