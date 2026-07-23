@@ -522,6 +522,7 @@ def animate_sequence(poses: list[dict], interpolation: str = "BEZIER",
     reqs = [{"op": "scene.set_clip_length", "args": {"frames": frames[-1] + 1}},
             {"op": "keys.set", "args": {"frames": [frames[0]]}}]
     try:
+      with bridge.session():   # one trigger for the whole build
         bridge.run_ops(reqs)
         blocked = []
         for p in sorted(poses, key=lambda q: q["frame"]):
@@ -728,7 +729,7 @@ def motion_retarget(clip: str, target_start: int = 0, ref_start: int = 0,
         requests.append({"op": "transform.set",
                          "args": {"items": items, "frame": tf, "set_key": True}})
     try:
-        # chunk to keep sessions reasonable
+      with bridge.session():   # one trigger for the whole retarget
         applied = 0
         CH = 6
         for i in range(0, len(requests), CH):

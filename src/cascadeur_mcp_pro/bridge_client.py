@@ -108,6 +108,7 @@ class BridgeClient:
         self._lock = threading.Lock()
         self._listener: socket.socket | None = None
         self._exe: str | None = None
+        self._persistent: BridgeSession | None = None
         self.last_latency: float | None = None
 
     # -------------------------------------------------- infrastructure
@@ -197,13 +198,59 @@ class BridgeClient:
         self.last_latency = time.monotonic() - started
         return BridgeSession(conn, hello)
 
+    # -------------------------------------------------- persistent session
+
+    def session(self):
+        """Context manager: hold ONE bridge session open for many run_ops calls,
+        so a whole build pays the ~2s --run-script trigger ONCE instead of per
+        call. NOTE: while the session is open the bridge blocks Cascadeur's main
+        thread whenever it waits for the next batch, so the UI is frozen for the
+        session's duration — scope this tightly around a headless build.
+
+            with client.session():
+                client.run_ops([...])   # fast — reuses the open session
+                client.run_op(...)
+        """
+        client = self
+
+        class _Ctx:
+            def __enter__(self_):
+                with client._lock:
+                    if client._persistent is None:
+                        client._persistent = client.open_session()
+                return client
+
+            def __exit__(self_, *exc):
+                with client._lock:
+                    if client._persistent is not None:
+                        try:
+                            client._persistent.close()
+                        finally:
+                            client._persistent = None
+                return False
+
+        return _Ctx()
+
     # -------------------------------------------------- public API
 
     def run_ops(self, requests: list[dict], reload_ops: bool = False) -> list[dict]:
-        """Run a batch of ops in one bridge session. Thread-safe."""
+        """Run a batch of ops. Reuses the persistent session if one is open
+        (see .session()), else opens+closes a one-shot session. Thread-safe."""
         for i, r in enumerate(requests):
             r.setdefault("id", i)
         with self._lock:
+            if self._persistent is not None:
+                if reload_ops:
+                    try:
+                        self._persistent.reload_ops()
+                    except (ConnectionError, socket.timeout, OSError):
+                        self._persistent = self.open_session()
+                try:
+                    return self._persistent.call(requests)
+                except (ConnectionError, socket.timeout, OSError):
+                    # session died (idle timeout / crash) — reopen once and retry
+                    self._persistent = self.open_session()
+                    return self._persistent.call(requests)
             session = self.open_session()
             try:
                 if reload_ops:

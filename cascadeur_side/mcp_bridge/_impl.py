@@ -27,8 +27,12 @@ import contextlib
 
 _HEADER = 12
 _PORT_FILE = os.path.join(tempfile.gettempdir(), "cascadeur_mcp_pro.json")
-_SESSION_TIMEOUT = 120.0   # hard cap on one bridge session, seconds
-_RECV_TIMEOUT = 10.0       # max idle wait for the next batch from the server
+# Persistent-session friendly: one trigger can serve a whole build. The serve
+# loop blocks Cascadeur's main thread only while waiting for the next batch, so
+# keep the idle wait moderate (UI is frozen during that wait) and cap the whole
+# session so a stuck client can't freeze the app forever.
+_SESSION_TIMEOUT = 300.0   # hard cap on one bridge session, seconds
+_RECV_TIMEOUT = 30.0       # max idle wait for the next batch from the server
 
 _OP_MODULES = [
     "commands.mcp_bridge.ops.scene_ops",
