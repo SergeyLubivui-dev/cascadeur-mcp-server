@@ -163,6 +163,31 @@ def scene_manage(action: str, path: str = "", frame: int = 0,
 
 
 @mcp.tool()
+def add_prop(shape: str = "cube", position: list[float] | None = None,
+             scale: list[float] | None = None, name: str = "",
+             lock: bool = True) -> dict:
+    """Add a STATIC set piece (cube/sphere/cylinder/plane) that does NOT animate.
+    Position/scale are written across all frames (constant) and the object is
+    locked, so it never drifts or gets posed — use for chairs, boxes, floors,
+    targets. position/scale are 3-element lists (cube base size ~80 units)."""
+    return _call("scene.add_prop", {"shape": shape, "position": position,
+                                    "scale": scale, "name": name or None,
+                                    "lock": lock})
+
+
+@mcp.tool()
+def add_chair(seat_z: float = 42.0, seat_top_y: float = 45.0, seat_w: float = 40.0,
+              seat_d: float = 34.0, back: bool = True) -> dict:
+    """Build a simple STATIC chair (seat + 4 legs + optional backrest) at X=0,
+    Z=seat_z with the seat surface at Y=seat_top_y. Returns the seat center for
+    placing the sit pose. The seat opening faces -Z (backrest at +Z), so a
+    character sits facing -Z with its back to the backrest."""
+    return _call("scene.add_chair", {"seat_z": seat_z, "seat_top_y": seat_top_y,
+                                     "seat_w": seat_w, "seat_d": seat_d,
+                                     "back": back})
+
+
+@mcp.tool()
 def import_fbx(path: str, mode: str = "model", new_scene: bool = False) -> dict:
     """Import an FBX file. mode: 'model' (mesh+skeleton), 'scene' (full scene),
     'animation' (onto existing rig), 'animation_to_selected_objects',
