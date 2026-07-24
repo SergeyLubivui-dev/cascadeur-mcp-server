@@ -457,6 +457,39 @@ def export_animation(path: str, format: str = "fbx", frame_start: int = 0,
 
 
 @mcp.tool()
+def apply_local_transforms(joints: list[dict], frame: int | None = None) -> dict:
+    """Set FULL local transforms (position + rotation + scale) per joint — the
+    CORRECT way to transfer a pose so every bone keeps its orientation, instead
+    of driving a few IK point positions (which lets IK guess and twist the
+    legs/arms). joints: [{"name": <joint>, "local_position":[x,y,z],
+    "local_rotation":[rx,ry,rz] euler DEGREES, "local_scale":[sx,sy,sz]}] (any
+    subset). Matches by joint-name suffix (namespace-agnostic) and switches the
+    tracks to FK so the transforms are respected. Get the values from anim.bake
+    of a source frame. This is the foundation for clean, no-twist retargeting."""
+    return _call("anim.apply_local", {"joints": joints, "frame": frame})
+
+
+@mcp.tool()
+def transfer_pose(source_casc: str, source_frame: int,
+                  target_frame: int = 0) -> dict:
+    """Copy ONE pose (all bones, full loc+rot) from a source .casc frame onto the
+    current character via apply_local_transforms — correct orientation, no
+    twisting. Bakes source_frame from source_casc, then applies it at
+    target_frame on the current scene."""
+    try:
+        with bridge.session():
+            bridge.run_op("scene.open", {"path": source_casc, "new_tab": True})
+            bake, _ = bridge.run_op("anim.bake", {"frame_start": source_frame,
+                                                 "frame_end": source_frame + 1})
+        joints = [{"name": j["name"],
+                   "local_position": j["frames"][0][:3],
+                   "local_rotation": j["frames"][0][3:6]} for j in bake["joints"]]
+        return _call("anim.apply_local", {"joints": joints, "frame": target_frame})
+    except BridgeError as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
 def auto_pose_update() -> dict:
     """Run Cascadeur's ML AutoPosing on the current frame: after you move a few
     main controller points, this adjusts the remaining points to a natural

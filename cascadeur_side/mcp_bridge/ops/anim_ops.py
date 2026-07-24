@@ -69,6 +69,86 @@ def anim_bake(ctx, frame_start=0, frame_end=None, name_re=None):
     }
 
 
+def apply_local(ctx, joints, frame=None, fk=True):
+    """Set FULL local transforms (position + rotation + scale) per joint — the
+    correct way to transfer a pose so bones keep their orientation (no twisted
+    legs from IK guessing). joints: [{"name": <joint>, "local_position":[x,y,z],
+    "local_rotation":[rx,ry,rz] euler DEGREES, "local_scale":[sx,sy,sz]}] (any
+    subset of the three). Matches joints by name suffix (namespace-agnostic).
+    fk=True switches the object tracks to FK on this frame first so the local
+    transforms are respected instead of being overridden by IK.
+    """
+    import numpy as np
+    import math
+    csc = ctx.csc
+    bv = ctx.bv()
+    mv = ctx.mv()
+    if frame is None:
+        frame = ctx.scene.get_current_frame()
+    frame = int(frame)
+
+    by_suffix = {}
+    for o in resolve_objects(ctx, behaviour="Joint"):
+        by_suffix[mv.get_object_name(o).split(":")[-1]] = o
+
+    plan = []          # (data_id, value)
+    touched = []       # objects, for FK switch
+    missing = []
+    for j in joints:
+        suffix = j["name"].split(":")[-1]
+        o = by_suffix.get(suffix)
+        if o is None:
+            missing.append(suffix)
+            continue
+        tr = bv.get_behaviour_by_name(o, "Transform")
+        if tr.is_null():
+            continue
+        touched.append(o)
+        if "local_position" in j:
+            plan.append((bv.get_behaviour_data(tr, "local_position"),
+                         np.array(j["local_position"], dtype=np.float32)))
+        if "local_rotation" in j:
+            e = j["local_rotation"]
+            # MUST match the bake's decomposition (rot.to_euler_angles_x_y_z),
+            # else compound rotations (arms) come out wrong. Use the x_y_z
+            # euler->quaternion inverse, not the differently-ordered from_euler.
+            q = csc.math.euler_angles_to_quaternion_x_y_z(
+                np.array([math.radians(float(e[0])), math.radians(float(e[1])),
+                          math.radians(float(e[2]))], dtype=np.float32))
+            rot = csc.math.Rotation.from_quaternion(q)
+            plan.append((bv.get_behaviour_data(tr, "local_rotation"), rot))
+        if "local_scale" in j:
+            plan.append((bv.get_behaviour_data(tr, "local_scale"),
+                         np.array(j["local_scale"], dtype=np.float32)))
+
+    lv = ctx.lv()
+
+    def mod(model, update, scene_updater):
+        de = model.data_editor()
+        if fk:
+            le = model.layers_editor()
+            for o in touched:
+                try:
+                    lid = lv.layer_id_by_obj_id(o)
+
+                    def mod_section(section):
+                        section.key.common.ik_fk = csc.layers.layer.IkFk.FK
+                    le.set_fixed_interpolation_or_key_if_need(lid, frame, True)
+                    le.change_section(frame, lid, mod_section)
+                except Exception:
+                    pass
+        actuals = set()
+        for did, val in plan:
+            if not did.is_null():
+                de.set_data_value(did, frame, val)
+                actuals.add(did)
+        scene_updater.run_update(actuals, frame)
+
+    ctx.scene.modify_update("MCP: apply local transforms", mod)
+    return {"applied": len(plan), "joints": len(touched), "frame": frame,
+            "missing": missing[:8]}
+
+
 def capture(ctx, frame_start=0, frame_end=None, contact_threshold=3.0):
     """Capture the current animation as a normalized motion record for the
     reference dataset.
@@ -232,6 +312,7 @@ def root_motion(ctx, frame_start=0, frame_end=None):
 
 OPS = {
     "anim.bake": anim_bake,
+    "anim.apply_local": apply_local,
     "anim.capture": capture,
     "ai.auto_pose_update": auto_pose_update,
     "ai.root_motion": root_motion,
