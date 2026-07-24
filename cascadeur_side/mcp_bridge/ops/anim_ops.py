@@ -117,7 +117,8 @@ def apply_local(ctx, joints, frame=None, fk=True):
     for o in resolve_objects(ctx, behaviour="Joint"):
         by_suffix[mv.get_object_name(o).split(":")[-1]] = o
 
-    plan = []          # (data_id, value)
+    plan = []          # (data_id, value) for position/rotation
+    scale_plan = []    # (data_id, value) for scale — applied in a SEPARATE pass
     touched = []       # objects, for FK switch
     missing = []
     for j in joints:
@@ -144,8 +145,8 @@ def apply_local(ctx, joints, frame=None, fk=True):
             rot = csc.math.Rotation.from_quaternion(q)
             plan.append((bv.get_behaviour_data(tr, "local_rotation"), rot))
         if "local_scale" in j:
-            plan.append((bv.get_behaviour_data(tr, "local_scale"),
-                         np.array(j["local_scale"], dtype=np.float32)))
+            scale_plan.append((bv.get_behaviour_data(tr, "local_scale"),
+                               np.array(j["local_scale"], dtype=np.float32)))
 
     lv = ctx.lv()
 
@@ -171,6 +172,19 @@ def apply_local(ctx, joints, frame=None, fk=True):
         scene_updater.run_update(actuals, frame)
 
     ctx.scene.modify_update("MCP: apply local transforms", mod)
+
+    # scale in its OWN modify_update — a scale write batched with position/
+    # rotation in the same run_update is silently dropped (verified).
+    if scale_plan:
+        def mod_scale(model, update, scene_updater):
+            de = model.data_editor()
+            actuals = set()
+            for did, val in scale_plan:
+                if not did.is_null():
+                    de.set_data_value(did, frame, val)
+                    actuals.add(did)
+            scene_updater.run_update(actuals, frame)
+        ctx.scene.modify_update("MCP: apply local scale", mod_scale)
     return {"applied": len(plan), "joints": len(touched), "frame": frame,
             "missing": missing[:8]}
 
@@ -223,17 +237,10 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
         de = model.data_editor()
         le = model.layers_editor()
         actuals = set()
-        for o, frames, scales in matched:
+        for o, frames, _scales in matched:
             tr = bv.get_behaviour_by_name(o, "Transform")
             lpid = bv.get_behaviour_data(tr, "local_position")
             lrid = bv.get_behaviour_data(tr, "local_rotation")
-            lsid = None
-            if scales:
-                try:
-                    sid = bv.get_behaviour_data(tr, "local_scale")
-                    lsid = sid if not sid.is_null() else None
-                except Exception:
-                    lsid = None
             if fk:
                 try:
                     lid = lv.layer_id_by_obj_id(o)
@@ -251,13 +258,36 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
                 de.set_data_value(lrid, f, to_rot(fr[3], fr[4], fr[5]))
                 actuals.add(lpid)
                 actuals.add(lrid)
-                if lsid is not None and fi < len(scales):
-                    de.set_data_value(lsid, f,
-                                      np.array(scales[fi], dtype=np.float32))
-                    actuals.add(lsid)
         scene_updater.run_update(actuals, frame_start)
 
     ctx.scene.modify_update("MCP: apply animation", mod)
+
+    # local_scale MUST be written in a SEPARATE modify_update: a scale write
+    # batched with local_position/local_rotation in the same run_update is
+    # silently dropped (verified — combined write kept the old scale). Only
+    # touch scale when a joint actually carries a non-unit scale channel.
+    if n_scaled:
+        def mod_scale(model, update, scene_updater):
+            de = model.data_editor()
+            actuals = set()
+            for o, frames, scales in matched:
+                if not scales:
+                    continue
+                tr = bv.get_behaviour_by_name(o, "Transform")
+                try:
+                    sid = bv.get_behaviour_data(tr, "local_scale")
+                except Exception:
+                    continue
+                if sid.is_null():
+                    continue
+                for fi in range(len(frames)):
+                    if fi < len(scales):
+                        de.set_data_value(sid, frame_start + fi,
+                                          np.array(scales[fi], dtype=np.float32))
+                        actuals.add(sid)
+            scene_updater.run_update(actuals, frame_start)
+        ctx.scene.modify_update("MCP: apply animation scale", mod_scale)
+
     return {"joints": len(matched), "frames": n, "scaled_joints": n_scaled,
             "frame_range": [frame_start, frame_start + n - 1]}
 
