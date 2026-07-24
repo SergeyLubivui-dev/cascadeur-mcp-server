@@ -94,10 +94,32 @@ def set_camera(ctx, preset="3q", target=None, distance=220.0):
         raise ValueError("preset must be one of %s" % sorted(presets))
     pos = presets[preset]
 
+    # Resolve a viewport across builds/instances. active_viewport() can return
+    # None (no focused viewport in a headless-launched instance); the collection
+    # accessor is viewports() (NOT view_ports).
+    vp = None
+    av = None
     try:
-        vp = app_scene.active_viewport().domain_viewport()
+        av = app_scene.active_viewport()
     except Exception:
-        vps = app_scene.view_ports()
+        av = None
+    if av is not None:
+        try:
+            vp = av.domain_viewport()
+        except Exception:
+            vp = None
+    if vp is None:
+        vps = None
+        for accessor in ("viewports", "view_ports"):
+            fn = getattr(app_scene, accessor, None)
+            if callable(fn):
+                try:
+                    vps = fn()
+                    break
+                except Exception:
+                    vps = None
+        if not vps:
+            raise RuntimeError("no viewport available to aim the camera")
         vp = vps[0].domain_viewport()
     struct = vp.camera_struct()
     struct.target = np.array([float(tgt[0]), float(tgt[1]), float(tgt[2])],
