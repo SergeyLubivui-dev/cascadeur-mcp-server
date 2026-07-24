@@ -223,7 +223,11 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
     for j in joints:
         o = by_suffix.get(j["name"].split(":")[-1])
         if o is not None:
-            matched.append((o, j["frames"], j.get("scale")))
+            # rot_only: transfer rotation but keep the target's own bone offset
+            # (local position). Used for cross-skeleton retarget so different
+            # bone lengths don't stretch — only the root keeps its translation.
+            matched.append((o, j["frames"], j.get("scale"),
+                            bool(j.get("rot_only"))))
 
     def to_rot(rx, ry, rz):
         q = csc.math.euler_angles_to_quaternion_x_y_z(
@@ -231,13 +235,13 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
                      dtype=np.float32))
         return csc.math.Rotation.from_quaternion(q)
 
-    n_scaled = sum(1 for _, _, s in matched if s)
+    n_scaled = sum(1 for _, _, s, _ in matched if s)
 
     def mod(model, update, scene_updater):
         de = model.data_editor()
         le = model.layers_editor()
         actuals = set()
-        for o, frames, _scales in matched:
+        for o, frames, _scales, rot_only in matched:
             tr = bv.get_behaviour_by_name(o, "Transform")
             lpid = bv.get_behaviour_data(tr, "local_position")
             lrid = bv.get_behaviour_data(tr, "local_rotation")
@@ -254,9 +258,10 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
                     pass
             for fi, fr in enumerate(frames):
                 f = frame_start + fi
-                de.set_data_value(lpid, f, np.array(fr[:3], dtype=np.float32))
+                if not rot_only:
+                    de.set_data_value(lpid, f, np.array(fr[:3], dtype=np.float32))
+                    actuals.add(lpid)
                 de.set_data_value(lrid, f, to_rot(fr[3], fr[4], fr[5]))
-                actuals.add(lpid)
                 actuals.add(lrid)
         scene_updater.run_update(actuals, frame_start)
 
@@ -270,7 +275,7 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
         def mod_scale(model, update, scene_updater):
             de = model.data_editor()
             actuals = set()
-            for o, frames, scales in matched:
+            for o, frames, scales, _rot_only in matched:
                 if not scales:
                     continue
                 tr = bv.get_behaviour_by_name(o, "Transform")

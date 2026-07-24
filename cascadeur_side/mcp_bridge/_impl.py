@@ -43,6 +43,7 @@ _OP_MODULES = [
     "commands.mcp_bridge.ops.tool_ops",
     "commands.mcp_bridge.ops.rig_ops",
     "commands.mcp_bridge.ops.anim_ops",
+    "commands.mcp_bridge.ops.retarget_ops",
     "commands.mcp_bridge.ops.ai_ops",
     "commands.mcp_bridge.ops.bonemap_ops",
     "commands.mcp_bridge.ops.rigmodel_ops",
