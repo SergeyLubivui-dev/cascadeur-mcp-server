@@ -128,12 +128,18 @@ def qrt_templates(ctx):
                                 for f in os.listdir(d) if f.endswith(".qrigcasc"))}
 
 
-def quick_rig(ctx, template="Mixamo_Namespace_Template_New", autoposing=True):
+def quick_rig(ctx, template="Mixamo_Namespace_Template_New", autoposing=True,
+              open_tool=True):
     """Create a full character rig from a quick-rig template.
 
     template: name from rig.qrt_templates (e.g. 'Mixamo_Namespace_Template_New',
     'Mixamo_No_Namespace_Template_New', 'UE5', 'CC3_char', 'standard') or an
     absolute path to a .qrigcasc file. The skeleton must already be imported.
+
+    open_tool: when False, do NOT open the interactive Quick Rigging panel — the
+    rig is still built from the template, but Cascadeur won't pop the "Rig
+    elements have been added / Generate rig" helper dialog that blocks a
+    one-click flow. Use False for the in-app Tools Pro command.
     """
     import os
     if os.path.isabs(template) and os.path.isfile(template):
@@ -160,7 +166,8 @@ def quick_rig(ctx, template="Mixamo_Namespace_Template_New", autoposing=True):
     # 2. Quick Rigging Tool: load template and build proto rig elements.
     tool = ctx.app.get_tools_manager().get_tool("RiggingToolWindowTool")
     editor = tool.editor(ctx.app_scene())
-    editor.open_quick_rigging_tool()
+    if open_tool:
+        editor.open_quick_rigging_tool()
     try:
         editor.set_is_create_autoposing(bool(autoposing))
     except Exception:

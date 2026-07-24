@@ -37,19 +37,22 @@ def run(scene):
             roles = bm.get("roles", {}) or {}
             unmapped = bm.get("unmapped", []) or []
             fingers = bm.get("finger_summary") or bm.get("fingers")
-            # build the Quick Rig
-            rig = U.op("rig.quick_rig",
-                       template=_TEMPLATES["mixamo"], autoposing=True)
-            msg = ("Imported + rigged.\n\n"
-                   "Mapped roles: %d\n"
-                   "Fingers: %s\n"
-                   "Unmapped bones: %s\n\n"
-                   "Rig: %s\n\nThe character is ready to animate."
-                   % (len(roles),
-                      "yes" if fingers else "none",
-                      (", ".join(unmapped[:12]) if unmapped else "none"),
-                      rig.get("status", rig)))
-            U.info("Rig ready", msg)
+            # build the Quick Rig (non-interactive so it doesn't stop on the
+            # "Generate rig" helper dialog)
+            rig = U.op("rig.quick_rig", template=_TEMPLATES["mixamo"],
+                       autoposing=True, open_tool=False)
+            rig = rig.get("rig", rig) if isinstance(rig, dict) else rig
+            joints = rig.get("joint_count", "?") if isinstance(rig, dict) else "?"
+            ctrls = rig.get("point_controllers", "?") if isinstance(rig, dict) else "?"
+            # concise summary — no raw dict dump
+            lines = ["Character imported and rigged — ready to animate.",
+                     "",
+                     "Bones: %s joints, %s controllers" % (joints, ctrls),
+                     "Roles mapped: %d" % len(roles),
+                     "Fingers: %s" % ("yes" if fingers else "none")]
+            if unmapped:
+                lines.append("Unmapped: %s" % ", ".join(unmapped[:10]))
+            U.info("Rig ready", "\n".join(lines))
 
         # confirm the template first (keeps it one obvious choice for now)
         U.buttons("Rig Mixamo FBX",
