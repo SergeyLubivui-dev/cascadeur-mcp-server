@@ -149,6 +149,80 @@ def apply_local(ctx, joints, frame=None, fk=True):
             "missing": missing[:8]}
 
 
+def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
+    """Apply a WHOLE animation by full local transforms per joint per frame — the
+    correct, no-twist retarget. joints uses the anim.bake format:
+    [{"name": <joint>, "frames": [[tx,ty,tz, rx,ry,rz(deg)], ...]}]. Sets each
+    joint's local_position + local_rotation for every frame in FK, so all bone
+    orientations transfer exactly (unlike point-position retarget which twists).
+    Matches joints by name suffix. Runs in one modify_update.
+    """
+    import numpy as np
+    import math
+    csc = ctx.csc
+    bv = ctx.bv()
+    mv = ctx.mv()
+    lv = ctx.lv()
+
+    by_suffix = {}
+    for o in resolve_objects(ctx, behaviour="Joint"):
+        by_suffix[mv.get_object_name(o).split(":")[-1]] = o
+
+    n = max((len(j.get("frames", [])) for j in joints), default=0)
+    if set_clip and n > 0:
+        def clipmod(model, update, scene_updater):
+            le = model.layers_editor()
+            default_layer = lv.default_layer_id()
+            le.set_section(csc.layers.layer.Section(), frame_start + n - 1,
+                           default_layer)
+            model.fit_animation_size_by_layers()
+            scene_updater.generate_update()
+        ctx.scene.modify_update("MCP: clip length", clipmod)
+
+    matched = []
+    for j in joints:
+        o = by_suffix.get(j["name"].split(":")[-1])
+        if o is not None:
+            matched.append((o, j["frames"]))
+
+    def to_rot(rx, ry, rz):
+        q = csc.math.euler_angles_to_quaternion_x_y_z(
+            np.array([math.radians(rx), math.radians(ry), math.radians(rz)],
+                     dtype=np.float32))
+        return csc.math.Rotation.from_quaternion(q)
+
+    def mod(model, update, scene_updater):
+        de = model.data_editor()
+        le = model.layers_editor()
+        actuals = set()
+        for o, frames in matched:
+            tr = bv.get_behaviour_by_name(o, "Transform")
+            lpid = bv.get_behaviour_data(tr, "local_position")
+            lrid = bv.get_behaviour_data(tr, "local_rotation")
+            if fk:
+                try:
+                    lid = lv.layer_id_by_obj_id(o)
+
+                    def mod_section(section):
+                        section.key.common.ik_fk = csc.layers.layer.IkFk.FK
+                        section.interval.common.ik_fk = csc.layers.layer.IkFk.FK
+                    le.set_fixed_interpolation_or_key_if_need(lid, frame_start, True)
+                    le.change_section(frame_start, lid, mod_section)
+                except Exception:
+                    pass
+            for fi, fr in enumerate(frames):
+                f = frame_start + fi
+                de.set_data_value(lpid, f, np.array(fr[:3], dtype=np.float32))
+                de.set_data_value(lrid, f, to_rot(fr[3], fr[4], fr[5]))
+                actuals.add(lpid)
+                actuals.add(lrid)
+        scene_updater.run_update(actuals, frame_start)
+
+    ctx.scene.modify_update("MCP: apply animation", mod)
+    return {"joints": len(matched), "frames": n,
+            "frame_range": [frame_start, frame_start + n - 1]}
+
+
 def capture(ctx, frame_start=0, frame_end=None, contact_threshold=3.0):
     """Capture the current animation as a normalized motion record for the
     reference dataset.
@@ -313,6 +387,7 @@ def root_motion(ctx, frame_start=0, frame_end=None):
 OPS = {
     "anim.bake": anim_bake,
     "anim.apply_local": apply_local,
+    "anim.apply_animation": apply_animation,
     "anim.capture": capture,
     "ai.auto_pose_update": auto_pose_update,
     "ai.root_motion": root_motion,

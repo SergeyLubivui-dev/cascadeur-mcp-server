@@ -470,6 +470,43 @@ def apply_local_transforms(joints: list[dict], frame: int | None = None) -> dict
 
 
 @mcp.tool()
+def retarget_full(source_casc: str, target_casc: str = "",
+                  out_fbx: str = "") -> dict:
+    """Retarget a WHOLE animation by full local transforms (loc+rot per bone per
+    frame) — the clean, no-twist way, under our control (works for the dataset /
+    cross-skeleton by joint name, unlike point-position retarget which twisted
+    the legs). Bakes every frame of source_casc, then applies it onto the target
+    character (target_casc, or the current scene) via anim.apply_animation.
+    Optionally exports a baked FBX. Same-skeleton clips can also use the native
+    retarget_animation; this path is ours end-to-end."""
+    try:
+        with bridge.session():
+            bridge.run_op("scene.open", {"path": source_casc, "new_tab": True})
+            bake, _ = bridge.run_op("anim.bake")
+        joints = [{"name": j["name"], "frames": j["frames"]}
+                  for j in bake["joints"]]
+        with bridge.session():
+            if target_casc:
+                bridge.run_op("scene.open", {"path": target_casc, "new_tab": True})
+            res, _ = bridge.run_op("anim.apply_animation",
+                                   {"joints": joints, "frame_start": 0})
+            if out_fbx:
+                bridge.run_op("scene.save", {"path": (out_fbx.rsplit(".", 1)[0]
+                                                      + ".casc")})
+        result = {"retargeted": source_casc, **res}
+        if out_fbx:
+            with bridge.session():
+                bake2, _ = bridge.run_op("anim.bake")
+            from . import fbx_writer
+            os.makedirs(os.path.dirname(out_fbx) or ".", exist_ok=True)
+            fbx_writer.write_fbx_ascii(bake2, out_fbx)
+            result["fbx"] = out_fbx
+        return result
+    except BridgeError as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
 def transfer_pose(source_casc: str, source_frame: int,
                   target_frame: int = 0) -> dict:
     """Copy ONE pose (all bones, full loc+rot) from a source .casc frame onto the
