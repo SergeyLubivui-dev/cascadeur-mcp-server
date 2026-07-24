@@ -10,10 +10,8 @@ Appears in Cascadeur's command list as "Tools Pro.Open Panel". The individual
 """
 
 import os
-import socket
 import subprocess
 import sys
-import webbrowser
 
 from commands.tools_pro import _common as U
 
@@ -35,24 +33,8 @@ def command_description():
             "fill, Unity export) in your browser.")
 
 
-def _server_up(port):
-    try:
-        s = socket.create_connection(("127.0.0.1", port), 0.4)
-        s.close()
-        return True
-    except Exception:
-        return False
-
-
 def run(scene):
     port = int(PANEL_PORT or 8765)
-    url = "http://127.0.0.1:%d/" % port
-
-    if _server_up(port):
-        webbrowser.open(url)
-        U.info("Tools Pro", "Panel opened in your browser:\n%s" % url)
-        return
-
     script = os.path.join(REPO_ROOT, "run_panel.py") if REPO_ROOT else ""
     if not script or not os.path.isfile(script):
         U.info("Tools Pro",
@@ -60,18 +42,19 @@ def run(scene):
                "  python run_panel.py\n(in the MCP project folder).")
         return
 
+    # run_panel.py opens the panel as a frameless app-window; if the server is
+    # already up it just re-opens the window. Spawn it detached so it outlives
+    # this command with no console window.
     py = VENV_PY if (VENV_PY and os.path.isfile(VENV_PY)) else sys.executable
     flags = 0
     if os.name == "nt":
-        # detach so the panel server outlives this command, no console window
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) \
             | getattr(subprocess, "DETACHED_PROCESS", 0)
     try:
         subprocess.Popen([py, script, "--port", str(port)],
                          cwd=REPO_ROOT, creationflags=flags, close_fds=True)
-        U.info("Tools Pro",
-               "Starting the panel — it will open in your browser at\n%s\n\n"
-               "(keep Cascadeur open; the panel drives it via the bridge.)" % url)
+        U.info("Tools Pro", "Opening the Tools Pro panel window…\n"
+               "(keep Cascadeur open — the panel drives it via the bridge.)")
     except Exception as e:
         U.info("Tools Pro", "Could not start the panel:\n%s\n\n"
                "Run manually: python run_panel.py" % e)

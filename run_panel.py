@@ -19,4 +19,10 @@ if __name__ == "__main__":
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()
-    panel_server.main(port=args.port, open_browser=not args.no_browser)
+    url = "http://127.0.0.1:%d/" % args.port
+    if panel_server.server_up(args.port):
+        # already running — just pop the window
+        if not args.no_browser:
+            panel_server.open_window(url)
+    else:
+        panel_server.main(port=args.port, open_browser=not args.no_browser)

@@ -26,6 +26,40 @@ from . import fbx_writer
 _HERE = os.path.dirname(os.path.abspath(__file__))
 bridge = BridgeClient()
 
+_APP_BROWSERS = (
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+)
+
+
+def server_up(port):
+    import socket
+    try:
+        s = socket.create_connection(("127.0.0.1", int(port)), 0.4)
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+def open_window(url):
+    """Open the panel as a FRAMELESS app-window (Chrome/Edge --app) so it looks
+    like a native tool window, not a browser tab. Falls back to a normal tab."""
+    import webbrowser as _wb
+    for exe in _APP_BROWSERS:
+        if os.path.isfile(exe):
+            try:
+                subprocess.Popen([exe, "--app=%s" % url,
+                                  "--window-size=470,940",
+                                  "--window-position=40,80"], close_fds=True)
+                return "app"
+            except Exception:
+                pass
+    _wb.open(url)
+    return "browser"
+
 
 # --------------------------------------------------------------- action logic
 
@@ -272,7 +306,7 @@ def main(port=8765, open_browser=True):
     url = "http://127.0.0.1:%d/" % port
     print("Tools Pro panel: %s   (Ctrl+C to stop)" % url)
     if open_browser:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.6, lambda: open_window(url)).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
