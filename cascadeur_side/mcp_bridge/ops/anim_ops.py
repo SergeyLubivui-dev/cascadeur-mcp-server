@@ -292,6 +292,54 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
             "frame_range": [frame_start, frame_start + n - 1]}
 
 
+def bake_keys(ctx, frame_start=0, frame_end=None, name_re=None):
+    """Put a KEY on every frame of every rig layer over [frame_start, frame_end]
+    — turns per-frame sampled DATA (what apply_animation/retarget writes) into a
+    proper BAKED animation whose keys Cascadeur's tools can operate on. This is
+    the prerequisite for ai.auto_interpolate (which reduces dense keys) and for
+    clean export; without it the clip has values but no keyframes, so the spline
+    pass and the attractor see nothing to work with. Keys are STEP by default
+    (auto_interpolate then picks Bezier/Clamped + IK/FK per section).
+    """
+    dv = ctx.dv()
+    lv = ctx.lv()
+    mv = ctx.mv()
+    if frame_end is None:
+        frame_end = dv.get_animation_size() - 1
+    frame_start, frame_end = int(frame_start), int(frame_end)
+
+    # layers that own a rig joint (skip empty/aux layers)
+    joints = resolve_objects(ctx, behaviour="Joint", name_re=name_re)
+    layer_ids = []
+    seen = set()
+    for o in joints:
+        try:
+            lid = lv.layer_id_by_obj_id(o)
+        except Exception:
+            continue
+        s = lid.to_string() if hasattr(lid, "to_string") else str(lid)
+        if s not in seen:
+            seen.add(s)
+            layer_ids.append(lid)
+
+    frames = range(frame_start, frame_end + 1)
+
+    def mod(model, update, scene_updater):
+        le = model.layers_editor()
+        for lid in layer_ids:
+            for f in frames:
+                try:
+                    le.set_fixed_interpolation_or_key_if_need(lid, f, True)
+                except Exception:
+                    pass
+        scene_updater.generate_update()
+
+    ctx.scene.modify_update("MCP: bake keys", mod)
+    return {"baked_keys": True, "layers": len(layer_ids),
+            "frames": frame_end - frame_start + 1,
+            "interval": [frame_start, frame_end]}
+
+
 def capture(ctx, frame_start=0, frame_end=None, contact_threshold=3.0):
     """Capture the current animation as a normalized motion record for the
     reference dataset.
@@ -455,6 +503,7 @@ def root_motion(ctx, frame_start=0, frame_end=None):
 
 OPS = {
     "anim.bake": anim_bake,
+    "anim.bake_keys": bake_keys,
     "anim.apply_local": apply_local,
     "anim.apply_animation": apply_animation,
     "anim.capture": capture,

@@ -845,6 +845,53 @@ def root_motion(frame_start: int = 0, frame_end: int | None = None) -> dict:
                                     "frame_end": frame_end})
 
 
+@mcp.tool()
+def physics_tween(frame: int, mode: str = "Inertial", factor: float = 1.0,
+                  only_key_frames: bool = False) -> dict:
+    """Cascadeur's physics "tween machine" (AttractorTool) — the LOCAL physics
+    in-between that works on the free license (unlike the gated ML Inbetweening).
+    Attracts the rig points at `frame` toward a physically-plausible pose using
+    scene gravity. mode: 'Inertial' (ballistic follow-through, default),
+    'InverseInertial', 'Previous', 'Next', 'Average' (even spacing),
+    'Interpolation' (physics-corrected). factor 0..1 = strength.
+    NOTE: operates on the RIG CONTROLLERS — the animation must be authored on the
+    rig (moved controllers / block poses), not raw off-rig joint transforms."""
+    return _call("ai.physics_tween", {"frame": frame, "mode": mode,
+                                      "factor": factor,
+                                      "only_key_frames": only_key_frames})
+
+
+@mcp.tool()
+def bake_keys(frame_start: int = 0, frame_end: int | None = None) -> dict:
+    """Put a KEY on every frame of every rig layer over the interval — turns
+    per-frame sampled DATA (what retarget/apply_animation writes) into a proper
+    BAKED animation with real keyframes. Prerequisite for auto_interpolate and
+    for unambiguous editing/export. Keys are STEP; run auto_interpolate after to
+    convert to smart Bezier/IK-FK sparse keys."""
+    return _call("anim.bake_keys", {"frame_start": frame_start,
+                                    "frame_end": frame_end})
+
+
+@mcp.tool()
+def auto_interpolate(frame_start: int = 0, frame_end: int | None = None) -> dict:
+    """Editable Animation / AutoInterpolation (the official pipeline's SPLINE
+    step): adaptively reduces a dense/baked animation to sparse EDITABLE
+    keyframes, picking the best interpolation (Bezier vs Clamped) and IK/FK/GR
+    per section and respecting fulcrum/foot contacts. Runs locally (not gated).
+    Needs exactly one rigged character with the motion ON THE RIG CONTROLLERS
+    (run bake_keys first if the clip has per-frame values but no keys)."""
+    return _call("ai.auto_interpolate", {"frame_start": frame_start,
+                                         "frame_end": frame_end})
+
+
+@mcp.tool()
+def auto_physics(on: bool = False) -> dict:
+    """Toggle the AutoPhysicsTool. on=False turns it off and releases all fulcrum
+    points. AutoPhysics continuously nudges the pose toward physical plausibility
+    as you move controllers (on-rig authoring aid)."""
+    return _call("ai.auto_physics", {"on": on})
+
+
 # ------------------------------------------------------------------ tools
 
 
