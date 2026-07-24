@@ -233,6 +233,23 @@ class BridgeClient:
 
     # -------------------------------------------------- public API
 
+    def reload_ops(self) -> dict:
+        """Force the bridge to re-import all ops modules (picks up edits to the
+        cascadeur_side handlers without restarting Cascadeur). Reuses the
+        persistent session if one is open."""
+        with self._lock:
+            if self._persistent is not None:
+                try:
+                    return self._persistent.reload_ops()
+                except (ConnectionError, socket.timeout, OSError):
+                    self._persistent = self.open_session()
+                    return self._persistent.reload_ops()
+            session = self.open_session()
+            try:
+                return session.reload_ops()
+            finally:
+                session.close()
+
     def run_ops(self, requests: list[dict], reload_ops: bool = False) -> list[dict]:
         """Run a batch of ops. Reuses the persistent session if one is open
         (see .session()), else opens+closes a one-shot session. Thread-safe."""

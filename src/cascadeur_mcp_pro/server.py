@@ -481,22 +481,31 @@ def retarget_full(source_casc: str, target_casc: str = "",
     retarget_animation; this path is ours end-to-end."""
     try:
         with bridge.session():
-            bridge.run_op("scene.open", {"path": source_casc, "new_tab": True})
+            src, _ = bridge.run_op("scene.open", {"path": source_casc,
+                                                  "new_tab": True})
             bake, _ = bridge.run_op("anim.bake")
-        joints = [{"name": j["name"], "frames": j["frames"]}
-                  for j in bake["joints"]]
-        with bridge.session():
+            # keep every channel bake emitted (incl. per-joint "scale" when the
+            # bone is non-unit) so location + rotation + scale all transfer.
+            joints = [{k: v for k, v in j.items()
+                       if k in ("name", "frames", "scale")}
+                      for j in bake["joints"]]
+            # free the source tab before we open/keep the target (no leak)
+            try:
+                bridge.run_op("scene.close_tab", {"name": src["name"]})
+            except BridgeError:
+                pass
             if target_casc:
-                bridge.run_op("scene.open", {"path": target_casc, "new_tab": True})
+                bridge.run_op("scene.open", {"path": target_casc,
+                                             "new_tab": True})
             res, _ = bridge.run_op("anim.apply_animation",
                                    {"joints": joints, "frame_start": 0})
+            bake2 = None
             if out_fbx:
                 bridge.run_op("scene.save", {"path": (out_fbx.rsplit(".", 1)[0]
                                                       + ".casc")})
-        result = {"retargeted": source_casc, **res}
-        if out_fbx:
-            with bridge.session():
                 bake2, _ = bridge.run_op("anim.bake")
+        result = {"retargeted": source_casc, **res}
+        if out_fbx and bake2 is not None:
             from . import fbx_writer
             os.makedirs(os.path.dirname(out_fbx) or ".", exist_ok=True)
             fbx_writer.write_fbx_ascii(bake2, out_fbx)
@@ -504,6 +513,16 @@ def retarget_full(source_casc: str, target_casc: str = "",
         return result
     except BridgeError as e:
         return {"error": str(e)}
+
+
+@mcp.tool()
+def cleanup_tabs(keep: str = "") -> dict:
+    """Close every open scene tab except one (the current tab by default, or the
+    tab named `keep`), freeing memory. Cascadeur holds each open tab's full scene
+    resident and wipes undo history once the process passes its RAM limit, so
+    repeated new-tab opens (imports, retargets, tests) bloat it and eventually
+    crash. Run this to reclaim memory after batch work."""
+    return _call("scene.close_others", {"keep": keep or None})
 
 
 @mcp.tool()

@@ -97,6 +97,30 @@ def scene_switch_tab(ctx, name):
                      % (name, [s.name() for s in sm.scenes()]))
 
 
+def scene_close_others(ctx, keep=None):
+    """Close every scene tab EXCEPT the one named `keep` (default: the current
+    tab). Frees memory — Cascadeur keeps each open tab's full scene resident and
+    clears undo history once the process passes its RAM limit, so leaked tabs
+    from repeated new_tab opens bloat it fast. Returns how many were closed."""
+    sm = ctx.app.get_scene_manager()
+    if keep is None:
+        try:
+            keep = sm.current_scene().name()
+        except Exception:
+            keep = None
+    victims = [s for s in list(sm.scenes()) if s.name() != keep]
+    closed = []
+    for s in victims:
+        nm = s.name()
+        try:
+            sm.remove_application_scene(s)
+            closed.append(nm)
+        except Exception:
+            pass
+    return {"closed": closed, "closed_count": len(closed), "kept": keep,
+            "remaining": len(list(sm.scenes()))}
+
+
 _PART_PATHS = {
     "cube": "objects/cube.partscasc",
     "sphere": "objects/sphere.partscasc",
@@ -233,6 +257,7 @@ OPS = {
     "scene.open": scene_open,
     "scene.save": scene_save,
     "scene.close_tab": scene_close_tab,
+    "scene.close_others": scene_close_others,
     "scene.switch_tab": scene_switch_tab,
     "scene.set_frame": set_frame,
     "scene.set_clip_length": set_clip_length,
