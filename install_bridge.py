@@ -13,8 +13,12 @@ import shutil
 import subprocess
 import sys
 
-SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                   "cascadeur_side", "mcp_bridge")
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.join(_ROOT, "cascadeur_side", "mcp_bridge")
+# extra command packages installed alongside the bridge (name -> source dir)
+EXTRA_PACKAGES = {
+    "tools_pro": os.path.join(_ROOT, "cascadeur_side", "tools_pro"),
+}
 
 
 def detect_cascadeur_dir() -> str:
@@ -53,20 +57,26 @@ def main() -> None:
         sys.exit(1)
 
     target = os.path.join(commands_dir, "mcp_bridge")
+    packages = [("mcp_bridge", SRC, target)]
+    for name, src in EXTRA_PACKAGES.items():
+        if os.path.isdir(src):
+            packages.append((name, src, os.path.join(commands_dir, name)))
+
     if args.uninstall:
-        if os.path.isdir(target):
-            shutil.rmtree(target)
-            print(f"Removed {target}")
-        else:
-            print("Nothing to remove.")
+        for name, _src, dst in packages:
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+                print(f"Removed {dst}")
         return
 
-    if os.path.isdir(target):
-        shutil.rmtree(target)
-    shutil.copytree(SRC, target,
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    print(f"Installed bridge to {target}")
-    print("No Cascadeur restart needed: the module is imported on first trigger.")
+    for name, src, dst in packages:
+        if os.path.isdir(dst):
+            shutil.rmtree(dst)
+        shutil.copytree(src, dst,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        print(f"Installed {name} to {dst}")
+    print("The bridge is imported on first trigger. Tools Pro commands appear in "
+          "Cascadeur's command list after a command reload / restart.")
 
 
 if __name__ == "__main__":
