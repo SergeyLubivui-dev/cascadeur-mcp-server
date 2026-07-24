@@ -17,7 +17,8 @@ def command_description():
 
 
 def run(scene):
-    from commands.tools_pro import rig_mixamo, export_unity, physics_fill
+    from commands.tools_pro import (rig_mixamo, export_unity, physics_fill,
+                                    retarget)
 
     def cleanup():
         r = U.op("scene.close_others")
@@ -27,6 +28,8 @@ def run(scene):
     U.buttons("Tools Pro", "Choose an action:", [
         ("Rig Mixamo FBX  (import + auto bone-map + Quick Rig)",
          U.guard(lambda: rig_mixamo.run(scene))),
+        ("Retarget animation from FBX  (name/role match)",
+         U.guard(lambda: retarget.run(scene))),
         ("Physics fill  (spline + IK/fulcrum feet + attractor)",
          U.guard(lambda: physics_fill.run(scene))),
         ("Export to Unity  (baked clips -> Model@clip.fbx)",
