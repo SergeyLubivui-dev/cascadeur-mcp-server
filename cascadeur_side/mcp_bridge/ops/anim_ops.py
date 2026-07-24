@@ -3,13 +3,20 @@
 from . import resolve_objects, get_parent, obj_name
 
 
-def anim_bake(ctx, frame_start=0, frame_end=None, name_re=None):
+def anim_bake(ctx, frame_start=0, frame_end=None, name_re=None, scale=True):
     """Bake joint LOCAL transforms per frame (fast path).
 
     Reads local_position + local_rotation directly off each joint's Transform
     behaviour (no global-matrix inversion) -> ~5x faster than deriving from
     global matrices. Returns per-joint per-frame [tx,ty,tz, rx,ry,rz]
     (rotation = XYZ euler degrees).
+
+    scale=True (default) also reads local_scale and attaches a parallel
+    "scale": [[sx,sy,sz], ...] field PER JOINT — but only when that joint is
+    actually non-unit somewhere in the clip (so unit-scale rigs stay lean and
+    the frame lists stay 6-wide for backward compatibility). apply_animation
+    re-applies it when present, so a rig with baked/non-uniform bone scale
+    transfers exactly (location + rotation + scale), not just loc+rot.
     """
     import math
 
@@ -26,12 +33,19 @@ def anim_bake(ctx, frame_start=0, frame_end=None, name_re=None):
 
     lpos_ids = {}
     lrot_ids = {}
+    lscl_ids = {}
     parents = {}
     for o in joints:
         key = o.to_string()
         tr = bv.get_behaviour_by_name(o, "Transform")
         lpos_ids[key] = bv.get_behaviour_data(tr, "local_position")
         lrot_ids[key] = bv.get_behaviour_data(tr, "local_rotation")
+        if scale:
+            try:
+                sid = bv.get_behaviour_data(tr, "local_scale")
+                lscl_ids[key] = sid if not sid.is_null() else None
+            except Exception:
+                lscl_ids[key] = None
         p = get_parent(ctx, o)
         parents[key] = p.to_string() if p is not None and p.to_string() in ids else None
 
@@ -40,7 +54,10 @@ def anim_bake(ctx, frame_start=0, frame_end=None, name_re=None):
         key = o.to_string()
         lp = lpos_ids[key]
         lr = lrot_ids[key]
+        sid = lscl_ids.get(key)
         frames = []
+        scales = []
+        non_unit = False
         for f in frames_range:
             t = dv.get_data_value(lp, f)
             rot = dv.get_data_value(lr, f)
@@ -53,11 +70,20 @@ def anim_bake(ctx, frame_start=0, frame_end=None, name_re=None):
             frames.append([round(float(t[0]), 6), round(float(t[1]), 6),
                            round(float(t[2]), 6), round(rx, 4), round(ry, 4),
                            round(rz, 4)])
-        result_joints.append({
+            if sid is not None:
+                s = dv.get_data_value(sid, f)
+                sx, sy, sz = float(s[0]), float(s[1]), float(s[2])
+                scales.append([round(sx, 6), round(sy, 6), round(sz, 6)])
+                if abs(sx - 1.0) > 1e-4 or abs(sy - 1.0) > 1e-4 or abs(sz - 1.0) > 1e-4:
+                    non_unit = True
+        jout = {
             "name": mv.get_object_name(o),
             "parent": mv.get_object_name(ids[parents[key]]) if parents[key] else None,
             "frames": frames,
-        })
+        }
+        if non_unit:
+            jout["scale"] = scales
+        result_joints.append(jout)
 
     return {
         "frame_start": frame_start,
@@ -183,7 +209,7 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
     for j in joints:
         o = by_suffix.get(j["name"].split(":")[-1])
         if o is not None:
-            matched.append((o, j["frames"]))
+            matched.append((o, j["frames"], j.get("scale")))
 
     def to_rot(rx, ry, rz):
         q = csc.math.euler_angles_to_quaternion_x_y_z(
@@ -191,14 +217,23 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
                      dtype=np.float32))
         return csc.math.Rotation.from_quaternion(q)
 
+    n_scaled = sum(1 for _, _, s in matched if s)
+
     def mod(model, update, scene_updater):
         de = model.data_editor()
         le = model.layers_editor()
         actuals = set()
-        for o, frames in matched:
+        for o, frames, scales in matched:
             tr = bv.get_behaviour_by_name(o, "Transform")
             lpid = bv.get_behaviour_data(tr, "local_position")
             lrid = bv.get_behaviour_data(tr, "local_rotation")
+            lsid = None
+            if scales:
+                try:
+                    sid = bv.get_behaviour_data(tr, "local_scale")
+                    lsid = sid if not sid.is_null() else None
+                except Exception:
+                    lsid = None
             if fk:
                 try:
                     lid = lv.layer_id_by_obj_id(o)
@@ -216,10 +251,14 @@ def apply_animation(ctx, joints, frame_start=0, fk=True, set_clip=True):
                 de.set_data_value(lrid, f, to_rot(fr[3], fr[4], fr[5]))
                 actuals.add(lpid)
                 actuals.add(lrid)
+                if lsid is not None and fi < len(scales):
+                    de.set_data_value(lsid, f,
+                                      np.array(scales[fi], dtype=np.float32))
+                    actuals.add(lsid)
         scene_updater.run_update(actuals, frame_start)
 
     ctx.scene.modify_update("MCP: apply animation", mod)
-    return {"joints": len(matched), "frames": n,
+    return {"joints": len(matched), "frames": n, "scaled_joints": n_scaled,
             "frame_range": [frame_start, frame_start + n - 1]}
 
 
